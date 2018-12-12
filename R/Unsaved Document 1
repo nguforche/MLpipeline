@@ -1,0 +1,5 @@
+#' @title Performance metrics  
+#
+#' @description This function computes several performance metrics from trainMLpipeline object 
+#' and optionally represents the results in a publication ready tabular format.  
+

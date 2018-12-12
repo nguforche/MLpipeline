@@ -1,0 +1,19 @@
+Package: MLpipeline 
+Title: Machine Learning pipeline
+Version: 0.1.0
+Author: person("Che", "Ngufor", , "Ngufor.Che@mayo.edu", role = c("aut", "cre"))
+Maintainer: Che Ngufor <Ngufor.Che@mayo.edu>
+Description: A framework for constructing several machine learning supervised 
+    learning models from raw data, evaluate, and possibly.   
+Depends:
+    R (>= 3.1.2)
+Imports:
+    PresenceAbsence,
+    caret, 
+    gbm, 
+    kernlab, 
+    nnet 
+License: GPL(>= 3)
+LazyData: true
+NeedsCompilation: no
+RoxygenNote: 6.1.0

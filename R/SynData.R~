@@ -1,0 +1,44 @@
+#' @title Synthetic Data   
+#
+#' @description Generate Synthetic binary classification data from multivariate normal distribution 
+#' @param n number of observations 
+#' @param p number of variables 
+#' @param sim type of simulation: sim = "simple" the two classes are simple multivariate normal distributiobs, 
+#' sim = "complex", a single multivariate distribution with a noisy hyperplane separating the two classes.   
+#' @importFrom mvtnorm rmvnorm 
+#' @export 
+ SynData <- function (n = 100, p = 10, sim="simple")
+{
+    require(mvtnorm)
+    u1 = rep(0, p)
+    u2 = rep(0.5, p)
+    sigma = diag(x = 1.5, nrow = p, ncol = p)
+    err = 0.01
+    pro = 0.6
+    N1 = floor(n * pro)
+    N2 = n - N1
+    
+    switch(sim, 
+    simple= {
+        X1 = cbind.data.frame(class = rep(0, N1), rmvnorm(N1, mean = u1,
+            sigma = sigma))
+        X2 = cbind.data.frame(class = rep(1, N2), rmvnorm(N2, mean = u2,
+            sigma = sigma))
+        dat = rbind.data.frame(X1, X2)
+        names(dat)[-1] <- paste0("V", 1:p)
+        dat = dat[sample(nrow(dat), nrow(dat)), ]
+    }, 
+    complex= {
+        Xy = rmvnorm(n, mean = u1, sigma = sigma)
+        a = runif(p, -1, 1)
+        a0 = sum(a) * pro
+        Ha = apply(t(apply(Xy, 1, "*", a)), 1, sum) + rnorm(n,
+            0, err)
+        ix = which(Ha > a0)
+        y = rep(1, n)
+        y[ix] = 0
+        dat = data.frame(class = y, Xy)
+    })
+    return(dat)
+}
+

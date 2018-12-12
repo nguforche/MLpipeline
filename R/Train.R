@@ -1,0 +1,233 @@
+#' @title Train machine learning pipeline models 
+#
+#' @description This function trains the machine learni ng pipeline framework. Specifically, its simply 
+#' provides an easy means to train several machine learning models through the \code{caret} \code{train} function
+#' By default (i.e setting the method parameter to NULL), the pipeline trains 9 models and select the best 
+#' model for making final predictions  
+#
+#' @name trainMLpipeline 
+# 
+#' @param data data.frame or matrix 
+#' @param  RFdist  RF distance matrix computed from \code{\link{RFdist}}.
+#' @param  B number of bootstraps 
+#' @param  clustermethod clustering method, options are \code{pamkCBI}, or \code{claraCBI}, or \code{hclustCBI}. 
+#'   Not to sure about \code{hclustCBI} see the \code{fpc} package. \code{pamkCBI} is 
+#'   recommended for RF dissimilarity matrix, but we have found standard 
+#' \code{hclust} in base R works well with  Ward's minimum variance creterion  
+#' @param classification type of prediction for finding optimal number of clusters 
+#' see \code{\link[fpc]{nselectboot}}.
+#' @param krange integer vector; numbers of clusters to be tried
+#' @param kopt user provided optimal number of clusters 
+#' @param run.boot (logical) run bootstrap cluster-wise stability ? 
+#' @param fun function to determine mediods, should be \code{mean}, \code{median}, 
+#' or \code{sum}. See \code{\link{mediod}}
+#' @param x object of class \code{\link{UnsupRF}} 
+#' @param \dots further arguments passed to or from other methods.
+#' @return A list with elements:  
+#' \enumerate{
+#' \item cluster.model: The cluster model  
+#' \item cluster: cluster memberships 
+#' \item kopt: optimal number of clusters  
+#' \item mediods: a mediod object            
+#' }
+# 
+#' @importFrom caret train trainControl 
+#' @importFrom gbm gbm gbm.fit 
+#' @importFrom kernlab ksvm 
+#' @importFrom mda fda 
+#' @importFrom nnet nnet 
+#' @importFrom randomForest randomForest
+#' @importFrom glmnet glmnet
+#' @importFrom xgboost xgb.train
+NULL
+#' @rdname trainMLpipeline
+#' @export
+trainMLpipeline <- function(x, ...) UseMethod("trainMLpipeline")
+
+#
+#' @rdname trainMLpipeline
+#' @export
+trainMLpipeline.default <- function(x, y, method = NULL, trControl = NULL,  tuneLength = NULL, 
+                           positive.class = "Yes", best.perf.metric = "ROC", prallel = FALSE, ...) {
+
+### expand dots  
+dots <- list(...)
+
+if (parallel) '%cols%' <- get('%dopar%')  ## parallel 
+else   '%cols%' <- get('%do%')  ## sequential 
+
+if(is.character(y)) y <- factor(y)
+if(nlevels(y) > 2) stop("Only binary classification is currently supported")
+levels(y)[levels(y)%in%positive.class] <- "Yes"
+    
+## if method is NULL the train defualt 9 suprime justice models 
+## default parameter tuning control is set to trainControl(method = "cv", number = 5, repeat = 1, classProbs = TRUE) 
+## to overrite this, pass in your own trnControl list  
+## default tuneLength is set to 3, to overight this pass your own tuneLength 
+
+## NOTE that if you choose to train your own caret classifier("method"), then you must pass in values for 
+## trnControl and tuneLength, as well as required parameters for your choosen classifier ("method") and 
+## the caret train function. 
+
+extra.para <- NULL 
+ 
+if(is.null(method)) {
+method <- c("glm", "rf", "gbm", "svmRadial", "glmnet", "pda", "xgbDART", "nnet", "C5.0")
+
+extra.para <- vector("list", length = 9)
+names(extra.para) <- method 
+extra.para[["glm"]] <- list(family = "binomial", control = list(maxit = 500))
+extra.para[["rf"]] <- list(ntree = 1000) 
+extra.para[["glmnet"]] <- list(family = "binomial")
+extra.para[["gbm"]] <- list(verbose = FALSE)
+extra.para[["nnet"]] <- list(maxit = 200, MaxNWts = 10000, trace = FALSE)
+
+if(is.null(trControl)){ 
+trControl = trainControl(method = "cv", number = 5, classProbs = TRUE)
+#cntl <- sapply(mothod, function(xx) trControl = trainControl(method = "cv", number = 5, repeat = 1, classProbs = TRUE), 
+#             simplify = FALSE)
+#cntl[["glm"]] <- trainControl(method = "none", classProbs = TRUE)            
+}
+if(is.null(tuneLength)) tuneLength = 3 
+}
+  
+Res <- lapply(method, function(mod) { 
+if(mod == "glm")  trainControl(method = "none", classProbs = TRUE)
+  cfun <- get(mod) ## get caret classifiers 
+  
+  # select arguments in dots that are arguements of the caret method   
+      csel <- dots[names(dots)%in%names(as.list(args(cfun)))]
+      csel <- csel[unique(names(csel))]     
+      def.args <- list(x = x, y = y, method = mod,  trControl = trControl, tuneLength = tuneLength, metric = "ROC")
+      args <- c(def.args, csel, extra.para)
+      args[sapply(args, is.null)] <- NULL 
+      args <- args[unique(names(args))]
+      model <- do.call(train, args)       
+      pp <-  predict(model, newdata = x, type =  "prob")[, "Yes"]
+      obs <- ifelse(y == "Yes", 1, 0) 
+      thresh <- thresh <- as.numeric(Performance.measures(pred = as.numeric(pp), obs = obs )$threshold)
+     model$threshold = thresh 
+     model   
+})
+names(Res) <- method 
+class(Res) <- "trainMLpipeline"
+Res
+}
+
+###################################################################################################################################
+###################################################################################################################################
+# formular methods: call caret train.formula methods 
+#' @rdname trainMLpipeline
+#' @export
+trainMLpipeline.formula <- function (form, data, method = c("glm", "rf", "gbm"),  trControl = NULL,  tuneLength = NULL, 
+                           positive.class = "Yes", best.perf.metric = "ROC",  sampling = NULL, 
+                           IMR = 5, parallel = FALSE,  ...)  {
+
+### expand dots  
+dots <- list(...)
+    
+## if method is NULL the train defualt 9 suprime justice models 
+## default parameter tuning control is set to trainControl(method = "cv", number = 5, repeat = 1, classProbs = TRUE) 
+## to overrite this, pass in your own trnControl list  
+## default tuneLength is set to 3, to overight this pass your own tuneLength 
+
+## NOTE that if you choose to train your own caret classifier("method"), then you must pass in values for 
+## trnControl and tuneLength, as well as required parameters for your choosen classifier ("method") and 
+## the caret train function. 
+ 
+#extra.para <- NULL 
+ 
+#if(is.null(method)) {
+#method <- c("glm", "rf", "gbm", "svmRadial", "glmnet", "pda", "xgbDART", "nnet", "C5.0")
+
+#extra.para <- vector("list", length = 9)
+#names(extra.para) <- method 
+#extra.para[["glm"]] <- list(family = "binomial", control = list(maxit = 500))
+#extra.para[["rf"]] <- list(ntree = 1000) 
+#extra.para[["glmnet"]] <- list(family = "binomial")
+#extra.para[["gbm"]] <- list(verbose = FALSE)
+#extra.para[["nnet"]] <- list(maxit = 200, MaxNWts = 10000, trace = FALSE)
+
+# "repeatedcv 
+if(is.null(trControl)) {
+trControl = trainControl(method = "repeatedcv", number = 5, repeats = 10, summaryFunction = twoClassSummary, classProbs = TRUE, 
+savePredictions = "all")
+#trControl = trainControl(method = "cv", number = 5, summaryFunction = twoClassSummary, classProbs = TRUE, savePredictions = "all")
+if(is.null(tuneLength)) tuneLength = 3
+
+} else trControl$savePredictions <- "all" 
+trControl$allowParallel = !parallel 
+
+if (parallel) '%cols%' <- get('%dopar%')  ## parallel 
+else   '%cols%' <- get('%do%')  ## sequential 
+
+resp.vars <- all.vars(form[[2]])
+rhs.vars <- all.vars(form[[3]])
+if(is.character(data[, resp.vars] )) data[, resp.vars]  <- factor(data[, resp.vars] )
+if(nlevels(data[, resp.vars] ) > 2) stop("Only binary classification is currently supported")
+levels(data[, resp.vars] )[levels(data[, resp.vars] )%in%positive.class] <- "Yes"
+y <- data[, resp.vars]
+  
+### check if data is unbalanced and do downsampling
+imr <- NULL 
+if(!is.null(sampling)){ 
+imr <- getIMR(y)
+if(imr <= IMR) 
+trControl$sampling = sampling  
+} 
+#Res <- lapply(method, function(mod) { 
+Res <- foreach(mod = method) %cols% {
+
+extra.para <- Model(mod) 
+
+## check if package is installed. 
+pkg <- getModelInfo(mod, regex = FALSE)[[1]]$library 
+for(i in seq(along = pkg)) do.call("requireNamespaceStop", list(package = pkg[i]))
+
+#require(pkg) 
+## get the corresponding function in the package for the caret method 
+fun <- classifier.name(mod)
+#print(pkg) 
+#if(!is.null(pkg))
+#print(isNamespaceLoaded(pkg[1]))
+
+cfun <- get(fun) ## get caret classifiers    
+# select arguments in dots that are arguements of the caret method   
+      csel <- dots[names(dots)%in%methods::formalArgs(cfun) ] ## use formals instead 
+      csel <- csel[unique(names(csel))] 
+      
+#      if(mod == "glm")  trainControl(method = "none", classProbs = TRUE)          
+      def.args <- list(form = form, data = data, method = mod,  trControl = trControl, 
+      tuneLength = tuneLength, metric = "ROC")
+      args <- c(def.args, csel, extra.para)
+      args[sapply(args, is.null)] <- NULL 
+      args <- args[unique(names(args))]
+      model <- do.call(train, args)       
+      model   
+} #)
+names(Res) <- method 
+Res$IMR = imr 
+## compare and select the best model using perf 
+#res <- summary(resamples(Res))$statistics[[best.perf.metric]][, "Mean"]
+#Res$Stats <- res 
+class(Res) <- "trainMLpipeline"
+Res
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
